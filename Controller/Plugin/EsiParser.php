@@ -93,8 +93,7 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
      */
     public function dispatchLoopShutdown()
     {
-        if (null === self::$_cache)
-        {
+        if (null === self::$_cache) {
             self::setCache();
         }
 
@@ -114,8 +113,7 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
      */
     public static function setCache(Zend_Cache_Core $cache = null)
     {
-        if (null === $cache)
-        {
+        if (null === $cache) {
             $front = array(
                 'caching' => self::$_cacheEnabled,
                 'automatic_serialization' => true,
@@ -150,11 +148,9 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
      */
     protected function _getHttpContext()
     {
-        if (null === $this->_httpContext)
-        {
-            $this->_httpContext = stream_context_create(
-                array('http' =>
-                    array(
+        if (null === $this->_httpContext) {
+            $this->_httpContext = stream_context_create(array(
+                'http' => array(
                         'ignore_errors' => true, // only available since php 5.2.10
                     )
                 )
@@ -173,17 +169,14 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
     {
         $hash = hash(self::ESI_DATA_HASH_CHECK, $data);
         $esiTags = array();
-        if (preg_match_all(self::ESI_INCLUDE_REGEX, $data, $esiTags, PREG_SET_ORDER) > 0)
-        {
-            foreach($esiTags as $esiTag)
-            {
+        if (0 < preg_match_all(self::ESI_INCLUDE_REGEX, $data, $esiTags, PREG_SET_ORDER)) {
+            foreach($esiTags as $esiTag) {
                 $content = $this->_replaceEsiInclude($esiTag[1]);
                 $data = str_replace($esiTag[0], $content, $data);
             }
         }
 
-        if ($hash != hash(self::ESI_DATA_HASH_CHECK, $data))
-        {
+        if ($hash != hash(self::ESI_DATA_HASH_CHECK, $data)) {
             return $this->_replaceEsiIncludes($data);
         }
         return $data;
@@ -197,10 +190,12 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
      */
     protected function _replaceEsiInclude($url)
     {
+        if (!array_key_exists('HTTP_HOST', $_SERVER)) {
+            return null;
+        }
         $uri = 'http://'.$_SERVER['HTTP_HOST'] . $url;
         $key = $this->_getCacheId($uri);
-        if ($this->_cacheEnabled())
-        {
+        if ($this->_cacheEnabled()) {
             // detect if url is cached
             $data = self::$_cache->load($key);
             if (false !== $data)
@@ -210,19 +205,14 @@ class Glitch_Controller_Plugin_EsiParser extends Zend_Controller_Plugin_Abstract
         }
 
         $fp = fopen($uri, 'r', false, $this->_getHttpContext());
-        if (false !== $fp)
-        {
+        if (false !== $fp) {
             $data = stream_get_contents($fp);
-            if ($this->_cacheEnabled())
-            {
+            if ($this->_cacheEnabled()) {
                 $meta = stream_get_meta_data($fp); // fetch the metadata of the fopen call
-                foreach ($meta['wrapper_data'] as $header)
-                {
+                foreach ($meta['wrapper_data'] as $header) {
                     $match = array();
-                    if (preg_match(self::ESI_CACHE_REGEX, $header, $match))
-                    {
-                        if (false !== $data)
-                        {
+                    if (preg_match(self::ESI_CACHE_REGEX, $header, $match)) {
+                        if (false !== $data) {
                             // cache url with the respected max-age setting
                             self::$_cache->save($data, $key, array(), intval($match[1]));
                             break;
