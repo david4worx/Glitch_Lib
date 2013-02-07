@@ -123,6 +123,7 @@ class Glitch_Controller_Dispatcher_Rest
 
             unset($ptController); // Be careful with our RAM
         }
+
         $controller->preDispatch();
         $request->setDispatched(true);
 

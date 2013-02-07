@@ -5,8 +5,14 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
 {
     protected $_application;
 
+    public $response;
+
+    protected $_throwExceptions = false;
+
     protected function setUp()
     {
+        Glitch_Registry::_unsetInstance();
+        Glitch_Registry::getInstance();
         $this->bootstrap = array($this, 'appBootstrap');
         parent::setUp();
 
@@ -20,6 +26,11 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
         }
 
     }
+
+/*    protected function tearDown()
+    {
+        Glitch_Registry::_unsetInstance();
+    }*/
 
     public function getRequest()
     {
@@ -40,7 +51,7 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
     {
         if (null === $this->_response) {
             // require_once 'Zend/Controller/Response/HttpTestCase.php';
-            $this->_response = new Glitch_Controller_Response_RestTestCase;
+            $this->_response = $this->response = new Glitch_Controller_Response_RestTestCase;
         }
 
         return $this->_response;
@@ -66,7 +77,12 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
                 $this->getFrontController()->getDispatcher()
         ));
         $this->_request = new Glitch_Controller_Request_RestTestCase();
-        $this->_request->setHeader('Accept', $acceptHeader);
+
+        if (is_string($acceptHeader)) {
+            $this->_request->setHeader('Accept', $acceptHeader);
+        } elseif(is_array($acceptHeader)) {
+            $this->_request->setHeaders($acceptHeader);
+        }
 
         // Set dispatch data
         if ($postData != null) {
@@ -78,17 +94,18 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
         }
 
         $this->_request->setMethod($requestMethod);
-        $this->_response = $this->dispatch($uri);
+        $this->_response = $this->response = $this->dispatch($uri);
 
         if ($displayBody) {
             // @codeCoverageIgnoreStart
 
             // Display (debug) data
-            print "From: ".$requestMethod." ".$uri."\n";
-            print 'STATUSCODE: ' . $this->_response->getHttpResponseCode()."\n";;
-            print_r($this->_request->getHeaders());
-            print_r($this->_response->getHeaders());
-            echo $this->_response->getBody();
+            print "URL: ".$requestMethod." ".$uri."\n";
+            print 'STATUSCODE: ' . $this->_response->getHttpResponseCode()."\n";
+            echo 'REQUEST HEADERS: '.print_r($this->_request->getHeaders(), 1);
+            echo 'REQUEST HEADERS: '.print_r($this->_response->getHeaders(), 1);
+            print "BODY:\n";
+            var_dump($this->_response->outputBody());
             flush();
             // @codeCoverageIgnoreEnd
         }
@@ -116,7 +133,7 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
         $this->frontController
              ->setRequest($request)
              ->setResponse($this->getResponse())
-             ->throwExceptions(false)
+             ->throwExceptions($this->throwExceptions())
              ->returnResponse(true);
 
         return $this->frontController->dispatch($request, $this->getResponse());
@@ -157,21 +174,26 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
         return $response;
     }
 
-    protected function _testDispatchToError($requestMethod, $uri, $acceptHeader, $postData, $httpCode, $displayBody=false)
+    protected function _testDispatchToError($requestMethod, $uri, $acceptHeader,
+                                            $postData, $httpCode, $displayBody=false,
+                                            $headers = array())
     {
         $module = 'error';
         $controller = 'Error_Controller_Error';
         $action = 'error';
 
-        return $this->_testDispatch($requestMethod, $uri, $acceptHeader, $postData, $httpCode, $module, $controller, $action, $displayBody);
+        return $this->_testDispatch($requestMethod, $uri, $acceptHeader, $postData,
+                                    $httpCode, $module, $controller, $action, $displayBody,
+                                    $headers);
     }
 
     protected function _getHeaderFromResponse($name)
     {
+        $name = strtolower($name);
         $headers = $this->getResponse()->getHeaders();
         foreach ($headers as $header)
         {
-            if ($header['name'] == $name) {
+            if (strtolower($header['name']) == $name) {
                 return $header['value'];
             }
         }
@@ -200,6 +222,54 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
             $this->fail($msg);
         }
     }
+
+    /**
+     * Reset MVC state
+     *
+     * Creates new request/response objects, resets the front controller
+     * instance, and resets the action helper broker.
+     *
+     * @todo   Need to update Zend_Layout to add a resetInstance() method
+     * @return void
+     */
+    public function reset($resetRequest = true)
+    {
+        $_SESSION = array();
+        $_GET     = array();
+        $_POST    = array();
+        $_COOKIE  = array();
+
+        if ($resetRequest) {
+            $this->resetRequest();
+        }
+
+        $this->resetResponse();
+        Zend_Layout::resetMvcInstance();
+        Zend_Controller_Action_HelperBroker::resetHelpers();
+        $this->frontController->resetInstance();
+        Zend_Session::$_unitTestEnabled = true;
+    }
+
+
+    /**
+     * Reset the request object
+     *
+     * Useful for test cases that need to test multiple trips to the server.
+     *
+     * @return Zend_Test_PHPUnit_ControllerTestCase
+     */
+    public function resetRequest()
+    {
+        if ($this->_request instanceof Glitch_Controller_Request_RestTestCase ||
+            $this->_request instanceof Zend_Controller_Request_HttpTestCase)
+        {
+            $this->_request->clearQuery()
+                           ->clearPost();
+        }
+        $this->_request = null;
+        return $this;
+    }
+
 
     /**
      * Assert that the last handled request used the given controller
@@ -235,6 +305,40 @@ abstract class Glitch_Test_PHPUnit_RestControllerTestCase
             $match,
             $message
         );
+    }
+
+    /**
+     * Assert response code, overriden to display correct message
+     *
+     * @param  int $code
+     * @param  string $message
+     * @return void
+     */
+    public function assertResponseCode($code, $message = '')
+    {
+
+        if (!$this->response) {
+            throw new Exception (
+                'Cannot assert response code if no $this->respponse has been set');
+        }
+
+        if (!$message) {
+            $message = 'Incorrect Http Status Code. Received: '
+                     . $this->response->getHttpResponseCode()
+                     . ', expected: '.$code;
+        }
+
+        return parent::assertResponseCode($code, $message);
+    }
+
+    public function throwExceptions($null = null)
+    {
+        if($null === null) {
+            return $this->_throwExceptions;
+        }
+
+        $this->_throwExceptions = (bool) $null;
+        return $this;
     }
 
 }
